@@ -1,0 +1,28 @@
+node_modules/
+.DS_Store
+.svelte-kit/
+build/
+dist/
+*.log
+*.ndjson
+.env
+.env.*
+!.env.example
+
+# Capacitor / Android
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/captures/
+android/app/release/
+android/app/debug/
+*.keystore
+*.jks
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.iml

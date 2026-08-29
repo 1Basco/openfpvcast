@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPV Live</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #eee;
+    font: 14px/1.4 system-ui, sans-serif; }
+  #wrap { position: relative; height: 100%; display: grid; place-items: center; }
+  video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #status { position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.6); padding: 6px 14px; border-radius: 999px;
+    transition: opacity .3s; pointer-events: none; }
+  #status.hidden { opacity: 0; }
+  #tap { position: absolute; inset: 0; display: none; place-items: center;
+    background: rgba(0,0,0,.7); cursor: pointer; font-size: 18px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <video id="video" autoplay playsinline muted></video>
+  <div id="status">connecting…</div>
+  <div id="tap">▶ tap to play</div>
+</div>
+<script>
+(() => {
+  const video = document.getElementById('video');
+  const status = document.getElementById('status');
+  const tap = document.getElementById('tap');
+  const setStatus = (t, hideAfter) => {
+    status.textContent = t;
+    status.classList.remove('hidden');
+    if (hideAfter) setTimeout(() => status.classList.add('hidden'), hideAfter);
+  };
+
+  let pc = null, ws = null, retryTimer = null;
+
+  function connect() {
+    setStatus('connecting…');
+    ws = new WebSocket(`ws://${location.host}/ws`);
+    pc = new RTCPeerConnection({ iceServers: [] }); // LAN only — host candidates
+
+    pc.ontrack = (e) => {
+      video.srcObject = e.streams[0];
+      video.play().catch(() => { tap.style.display = 'grid'; });
+      setStatus('live', 1500);
+    };
+    pc.onicecandidate = (e) => {
+      if (e.candidate && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'ice',
+          candidate: e.candidate.candidate,
+          sdpMid: e.candidate.sdpMid,
+          sdpMLineIndex: e.candidate.sdpMLineIndex
+        }));
+      }
+    };
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+        scheduleRetry('signal lost — retrying…');
+      }
+    };
+
+    ws.onmessage = async (m) => {
+      const msg = JSON.parse(m.data);
+      if (msg.type === 'offer') {
+        await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        ws.send(JSON.stringify({ type: 'answer', sdp: answer.sdp }));
+      } else if (msg.type === 'ice') {
+        try {
+          await pc.addIceCandidate({
+            candidate: msg.candidate, sdpMid: msg.sdpMid, sdpMLineIndex: msg.sdpMLineIndex
+          });
+        } catch (e) { console.warn('ice', e); }
+      } else if (msg.type === 'full') {
+        setStatus('session full — too many viewers');
+        ws.onclose = null; // don't auto-retry a rejected session
+      }
+    };
+    ws.onclose = () => scheduleRetry('disconnected — retrying…');
+    ws.onerror = () => { try { ws.close(); } catch {} };
+  }
+
+  function scheduleRetry(msg) {
+    if (retryTimer) return;
+    setStatus(msg);
+    try { pc && pc.close(); } catch {}
+    try { ws && (ws.onclose = null, ws.close()); } catch {}
+    retryTimer = setTimeout(() => { retryTimer = null; connect(); }, 2000);
+  }
+
+  tap.addEventListener('click', () => {
+    tap.style.display = 'none';
+    video.play().catch(() => {});
+  });
+
+  connect();
+})();
+</script>
+</body>
+</html>

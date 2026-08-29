@@ -1,0 +1,26 @@
+{
+  "name": "open-fpv-cast",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.6.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "sync": "pnpm --filter web build && cap sync android",
+    "android": "pnpm sync && cap run android",
+    "android:open": "cap open android"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/app": "^8",
+    "@capacitor/cli": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
+    "@capacitor/screen-orientation": "^8"
+  },
+  "dependencies": {
+    "capacitor-dji-aoa": "workspace:*"
+  }
+}

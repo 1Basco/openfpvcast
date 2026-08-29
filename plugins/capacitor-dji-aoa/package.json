@@ -1,0 +1,36 @@
+{
+  "name": "capacitor-dji-aoa",
+  "version": "0.0.1",
+  "description": "Capacitor plugin: DJI Goggles N3 over Android Open Accessory (AOA)",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "unpkg": "dist/plugin.js",
+  "files": [
+    "android/src/main/",
+    "android/build.gradle",
+    "dist/",
+    "ios/",
+    "CapacitorDjiAoa.podspec",
+    "package.json"
+  ],
+  "author": "Open FPV Cast contributors",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
+    "typescript": "^5.6.3"
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^8.0.0"
+  },
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  }
+}
