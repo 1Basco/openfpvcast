@@ -154,10 +154,6 @@ jobs:
           SUFFIX=""
           [ "$SIGNED" = "true" ] || SUFFIX="-unsigned"
           cp android/app/build/outputs/apk/release/*.apk "dist/open-fpv-cast-${VERSION}${SUFFIX}.apk"
-          # The release build is minified, so keep R8's mapping with the workflow artifact —
-          # without it a crash report from this build cannot be deobfuscated. It stays out of
-          # the published release assets (only the APK and the sums are attached).
-          cp android/app/build/outputs/mapping/release/mapping.txt "dist/mapping-${VERSION}.txt"
           cd dist && sha256sum *.apk > SHA256SUMS.txt
           cat SHA256SUMS.txt
 

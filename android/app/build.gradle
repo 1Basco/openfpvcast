@@ -34,9 +34,10 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Minification is OFF on purpose — see proguard-rules.pro for the crash it caused.
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             if (System.getenv("ANDROID_KEYSTORE_PATH")) {
                 signingConfig = signingConfigs.release
             }
