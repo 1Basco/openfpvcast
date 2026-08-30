@@ -8,6 +8,30 @@ in a browser.
 > Not affiliated with or endorsed by DJI. "DJI" and product names are trademarks of their
 > respective owners and are used here only to describe hardware compatibility.
 
+## Demo
+
+<p align="center">
+  <img src="assets/home-screen.jpg" width="230" alt="Portrait home screen with no accessory connected">
+  &nbsp;&nbsp;&nbsp;
+  <img src="assets/app-tour-poster.jpg" width="230" alt="Streaming layout with the camera tab open over the live feed">
+</p>
+<p align="center">
+  <sub>Home screen before the goggles are plugged in · the streaming layout with the camera tab open</sub>
+</p>
+
+**App tour** — connecting to the goggles, the camera state read back from the O4 Lite, auto-record,
+and the switch to the landscape streaming layout:
+
+<video src="https://github.com/1Basco/openfpvcast/raw/main/assets/app-tour.mp4" poster="https://github.com/1Basco/openfpvcast/raw/main/assets/app-tour-poster.jpg" width="280" controls muted playsinline>
+  <a href="assets/app-tour.mp4">Watch the app tour (MP4)</a>
+</video>
+
+**In flight** — the goggles feed live on the phone, recording, with the side tab still reachable:
+
+<video src="https://github.com/1Basco/openfpvcast/raw/main/assets/flight.mp4" poster="https://github.com/1Basco/openfpvcast/raw/main/assets/flight-poster.jpg" width="600" controls muted playsinline>
+  <a href="assets/flight.mp4">Watch the flight clip (MP4)</a>
+</video>
+
 ## How it works
 
 The goggles expose themselves as a USB Android Open Accessory (AOA). The app opens the
@@ -51,6 +75,27 @@ packet layout, the camera byte maps and their confidence grades are written up i
 > protocol work lives at `/debug`, and a camera value-sweep bench at `/debug/camera-matrix` (both
 > behind **Settings → Developer mode**).
 
+## Install
+
+Grab the APK from the [latest release](https://github.com/1Basco/openfpvcast/releases/latest)
+and sideload it. Each release also ships `SHA256SUMS.txt` — check your download before
+installing it:
+
+```sh
+sha256sum -c SHA256SUMS.txt          # Linux  (macOS: shasum -a 256 -c)
+```
+
+```powershell
+Get-FileHash .\open-fpv-cast-<version>.apk -Algorithm SHA256   # Windows, compare by eye
+```
+
+Releases are built by GitHub Actions straight from a tag on `main` — the run that produced each
+artifact is linked in the release notes, and the APK is signed with the project's release key:
+
+```sh
+apksigner verify --print-certs open-fpv-cast-<version>.apk
+```
+
 ## Repository layout
 
 | Path | What |
@@ -58,7 +103,9 @@ packet layout, the camera byte maps and their confidence grades are written up i
 | `apps/web/` | SvelteKit frontend (the app UI) — see its README |
 | `plugins/capacitor-dji-aoa/` | Capacitor plugin — Kotlin USB/AOA/DUML/H.264 hardware layer |
 | `android/` | Capacitor Android host project |
+| `.github/workflows/` | Tag-driven release pipeline that builds and publishes the APK |
 | `AGENTS.md` | Protocol reference and working rules for contributors |
+| `CONTRIBUTING.md` | How to report an issue and open a pull request |
 
 ## Build
 
@@ -70,6 +117,14 @@ pnpm exec cap run android   # build & run on a connected device
 ```
 
 Requires a phone that supports USB Android Open Accessory and DJI FPV goggles (N3).
+
+Local builds are versioned `0.0.0-dev`; the version of a shipped build comes from its release
+tag. To reproduce a release build locally, pass the same values CI does:
+
+```sh
+APP_VERSION=1.2.3 pnpm --filter web build && pnpm exec cap sync android
+cd android && ./gradlew -PversionName=1.2.3 -PversionCode=1002003 assembleRelease
+```
 
 ## License
 
