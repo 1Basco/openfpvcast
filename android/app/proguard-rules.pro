@@ -19,3 +19,13 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# --- Open FPV Cast ---
+# The pieces that need reflection already ship their own consumer rules, so there is nothing
+# to repeat here: Capacitor keeps @CapacitorPlugin classes and their @PluginMethod methods
+# (@capacitor/android's proguard-rules.pro), and the libwebrtc AAR keeps org.webrtc.** for JNI.
+
+# Keep stack traces from release crashes readable — without these, a diagnostics report is a
+# wall of a/b/c. Costs a few KB of the mapping attributes, worth it for a sideloaded build.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile

@@ -1,0 +1,221 @@
+name: Release
+
+# A release is cut by pushing a semver tag that lives on main:
+#
+#   git tag -a v1.2.3 -m "v1.2.3" && git push origin v1.2.3
+#
+# The tag is the single source of truth for the version: it becomes the Android
+# versionName, the in-app version string and the GitHub Release name. A tag that is not
+# reachable from main is rejected, so every release maps to a commit that shipped on main.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, without the leading v. Dry run — nothing is published.'
+        required: false
+        default: '0.0.0-dryrun'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the version and require the tag to be on main
+        id: version
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            PUBLISH=false
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+            PUBLISH=true
+            git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::Tag ${GITHUB_REF_NAME} is not reachable from main. Merge to main first, then tag that commit."
+              exit 1
+            fi
+          fi
+
+          if ! [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version '$VERSION' is not semver — tag releases as vMAJOR.MINOR.PATCH[-prerelease]."
+            exit 1
+          fi
+          MAJOR="${BASH_REMATCH[1]}"; MINOR="${BASH_REMATCH[2]}"; PATCH="${BASH_REMATCH[3]}"
+          PRE="${BASH_REMATCH[4]:-}"
+          if [ "$MINOR" -gt 999 ] || [ "$PATCH" -gt 999 ]; then
+            echo "::error::minor and patch must stay below 1000 for the versionCode formula."
+            exit 1
+          fi
+          # Monotonic while minor/patch stay under 1000. A prerelease shares its release's code.
+          VERSION_CODE=$(( MAJOR * 1000000 + MINOR * 1000 + PATCH ))
+
+          {
+            echo "version=$VERSION"
+            echo "version_code=$VERSION_CODE"
+            echo "publish=$PUBLISH"
+            echo "prerelease=$([ -n "$PRE" ] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building $VERSION (versionCode $VERSION_CODE), publish=$PUBLISH"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Ensure the Android SDK packages are installed
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the plugin's TypeScript bridge
+        run: pnpm --filter capacitor-dji-aoa build
+
+      - name: Build the web app
+        env:
+          NODE_ENV: production
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: pnpm --filter web build
+
+      - name: Sync web + plugins into the Android project
+        env:
+          # Keeps WebView remote debugging off in the release build (see capacitor.config.ts).
+          NODE_ENV: production
+        run: pnpm exec cap sync android
+
+      - name: Decode the release keystore
+        id: keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set — the artifacts will be UNSIGNED and cannot be installed as-is."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build the release APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ steps.keystore.outputs.signed == 'true' && format('{0}/release.jks', runner.temp) || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon \
+            "-PversionName=${{ steps.version.outputs.version }}" \
+            "-PversionCode=${{ steps.version.outputs.version_code }}" \
+            assembleRelease
+
+      - name: Collect the artifacts and hash them
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SIGNED: ${{ steps.keystore.outputs.signed }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          SUFFIX=""
+          [ "$SIGNED" = "true" ] || SUFFIX="-unsigned"
+          cp android/app/build/outputs/apk/release/*.apk "dist/open-fpv-cast-${VERSION}${SUFFIX}.apk"
+          # The release build is minified, so keep R8's mapping with the workflow artifact —
+          # without it a crash report from this build cannot be deobfuscated. It stays out of
+          # the published release assets (only the APK and the sums are attached).
+          cp android/app/build/outputs/mapping/release/mapping.txt "dist/mapping-${VERSION}.txt"
+          cd dist && sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Verify the APK signature
+        if: steps.keystore.outputs.signed == 'true'
+        run: |
+          set -euo pipefail
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -1)"
+          "$APKSIGNER" verify --verbose --print-certs dist/*.apk
+
+      - name: Upload the build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-fpv-cast-${{ steps.version.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish the GitHub Release
+        if: steps.version.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SIGNED: ${{ steps.keystore.outputs.signed }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          PREV_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -v "^${GITHUB_REF_NAME}$" | head -1 || true)"
+          {
+            echo "Built from \`${GITHUB_SHA}\` by [this run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."
+            echo
+            if [ "$SIGNED" != "true" ]; then
+              echo "> [!WARNING]"
+              echo "> These artifacts are **unsigned** and cannot be installed as-is. Set the"
+              echo "> \`ANDROID_KEYSTORE_*\` repository secrets and re-run this release to get installable builds."
+              echo
+            fi
+            if [ -n "$PREV_TAG" ]; then
+              echo "**Changes:** ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${GITHUB_REF_NAME}"
+              echo
+            fi
+            echo "### Verify your download"
+            echo
+            echo 'Download `SHA256SUMS.txt` next to the APK, then:'
+            echo
+            echo '```sh'
+            echo 'sha256sum -c SHA256SUMS.txt'
+            echo '```'
+            echo
+            echo '```'
+            cat dist/SHA256SUMS.txt
+            echo '```'
+          } > release-notes.md
+
+          ARGS=()
+          if [ "$PRERELEASE" = "true" ]; then ARGS+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "v${VERSION}" \
+            --notes-file release-notes.md \
+            "${ARGS[@]}" \
+            dist/*.apk dist/SHA256SUMS.txt

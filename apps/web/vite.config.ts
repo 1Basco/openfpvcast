@@ -4,11 +4,17 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
-/** The shipped app version = the Android versionName (falls back to 0.0.0 for web-only builds). */
+/**
+ * The shipped app version. CI sets APP_VERSION from the release tag (the same value it passes to
+ * Gradle as `-PversionName`); local builds fall back to the Gradle default, then to 0.0.0.
+ */
 function appVersion(): string {
+	if (process.env.APP_VERSION) return process.env.APP_VERSION;
 	try {
 		const gradle = readFileSync(new URL('../../android/app/build.gradle', import.meta.url), 'utf8');
-		return gradle.match(/versionName\s+"([^"]+)"/)?.[1] ?? '0.0.0';
+		const line = gradle.match(/^\s*versionName.*$/m)?.[0] ?? '';
+		// Matches both `versionName "1.0"` and the `... ?: "0.0.0-dev"` fallback form.
+		return line.match(/["']([^"']+)["']\s*$/)?.[1] ?? '0.0.0';
 	} catch {
 		return '0.0.0';
 	}
