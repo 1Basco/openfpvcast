@@ -3,12 +3,56 @@
 	import { toast } from 'svelte-sonner';
 
 	import SectionLabel from '$lib/components/common/SectionLabel.svelte';
+	import Segmented from '$lib/components/common/Segmented.svelte';
 	import { connection } from '$lib/stores/connection';
-	import { broadcast, startBroadcast, stopBroadcast } from '$lib/stores/broadcast';
+	import {
+		broadcast,
+		setBroadcastQuality,
+		startBroadcast,
+		stopBroadcast
+	} from '$lib/stores/broadcast';
+	import { settings } from '$lib/stores/settings';
 	import QrCode from '$lib/components/broadcast/QrCode.svelte';
+	import type { BroadcastQuality } from 'capacitor-dji-aoa';
 	import * as m from '$lib/paraglide/messages';
 
 	let busy = $state(false);
+
+	const QUALITIES = ['low-latency', 'balanced', 'fidelity'] as const satisfies readonly BroadcastQuality[];
+
+	// The delay each profile asks the viewer to hold — mirrors BroadcastQuality.playoutDelayMs
+	// on the native side. Shown so the cost of the better picture is never a surprise.
+	const LAG_MS: Record<BroadcastQuality, number> = {
+		'low-latency': 0,
+		balanced: 200,
+		fidelity: 1000
+	};
+
+	const label = (q: BroadcastQuality) =>
+		q === 'low-latency'
+			? m.bcast_qualityLowLatency()
+			: q === 'fidelity'
+				? m.bcast_qualityFidelity()
+				: m.bcast_qualityBalanced();
+
+	const lag = (q: BroadcastQuality) =>
+		LAG_MS[q] === 0
+			? m.bcast_qualityLagInstant()
+			: m.bcast_qualityLagSeconds({ seconds: (LAG_MS[q] / 1000).toFixed(1) });
+
+	async function pickQuality(q: BroadcastQuality) {
+		if (q === $settings.broadcast.quality) return;
+		const wasRunning = $broadcast.running;
+		busy = true;
+		try {
+			await setBroadcastQuality(q);
+			if (wasRunning) toast.info(m.bcast_qualityRestarting());
+		} catch (e) {
+			toast.error(m.bcast_error({ error: e instanceof Error ? e.message : String(e) }));
+		} finally {
+			busy = false;
+		}
+	}
 
 	async function toggle() {
 		busy = true;
@@ -66,6 +110,17 @@
 			<QrCode value={$broadcast.url} />
 		</div>
 	{/if}
+
+	<Segmented
+		options={QUALITIES}
+		value={$settings.broadcast.quality}
+		onselect={pickQuality}
+		format={label}
+		sub={lag}
+		size="sm"
+		disabled={busy}
+	/>
+	<p class="text-[11px] leading-snug text-dim text-pretty">{m.bcast_qualityHint()}</p>
 
 	<button
 		type="button"

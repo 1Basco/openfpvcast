@@ -376,13 +376,14 @@ class DjiAoaPlugin : Plugin() {
 		broadcaster?.let { if (it.running) return call.resolve(broadcastStateJs()) }
 
 		val port = call.getInt("port") ?: WebRtcBroadcaster.DEFAULT_PORT
+		val quality = BroadcastQuality.from(call.getString("quality"))
 		val bc = WebRtcBroadcaster(context) { _, _, _ ->
 			notifyListeners("broadcastState", broadcastStateJs())
 		}
 		// The heavy lifting (libwebrtc init, server bind) must stay off the main thread.
 		Thread {
 			try {
-				val url = bc.start(port)
+				val url = bc.start(port, quality)
 				val sink = bc.sink
 				broadcasterSink = sink
 				fo.addSink(sink)
@@ -417,6 +418,9 @@ class DjiAoaPlugin : Plugin() {
 		ret.put("running", bc?.running == true)
 		bc?.url?.let { ret.put("url", it) }
 		ret.put("viewers", bc?.viewers ?: 0)
+		// Report the profile the running graph was built with, not the one the UI wants — they
+		// diverge until the broadcast is restarted.
+		bc?.let { ret.put("quality", it.quality.jsName) }
 		return ret
 	}
 
