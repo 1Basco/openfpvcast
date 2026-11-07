@@ -1,4 +1,5 @@
 import { writable, get, type Writable } from 'svelte/store';
+import type { BroadcastQuality } from 'capacitor-dji-aoa';
 
 /**
  * App-wide persisted settings (localStorage). One store, one key — every field has a
@@ -21,6 +22,11 @@ export interface AppSettings {
 	broadcast: {
 		/** Start the WebRTC broadcast automatically when video starts flowing. */
 		autoStart: boolean;
+		/**
+		 * Latency-vs-picture-quality profile for the WebRTC re-encode. `fidelity` buys the
+		 * best picture the downlink allows with a ~1 s viewer-side buffer.
+		 */
+		quality: BroadcastQuality;
 	};
 	camera: {
 		/** Last video-format fps applied — used to synthesize recording PTS. */
@@ -46,7 +52,7 @@ const DEFAULTS: AppSettings = {
 	locale: null,
 	recordPhoneAudio: true,
 	autoRecord: { enabled: false, stopDelayMs: 5000 },
-	broadcast: { autoStart: false },
+	broadcast: { autoStart: false, quality: 'balanced' },
 	camera: { fps: 60 },
 	ui: { sideTabOpen: false, sideTabSection: 'camera', forceLandscape: false },
 	developerMode: false,

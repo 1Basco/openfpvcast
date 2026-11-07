@@ -108,6 +108,16 @@ export interface RecordingFile {
 	thumbnailUri?: string;
 }
 
+/**
+ * How the broadcast trades latency for picture quality.
+ *
+ * The goggles' downlink (nominally 1080p60) is the ceiling — no profile adds detail the link
+ * never sent. What they recover is the loss from the phone's re-encode: bitrate ceiling and
+ * floor, whether the encoder may drop resolution under load, and how deep a jitter buffer the
+ * viewer holds. `fidelity` puts the viewer roughly a second behind live.
+ */
+export type BroadcastQuality = 'low-latency' | 'balanced' | 'fidelity';
+
 /** State of the LAN WebRTC broadcast (also emitted as the `broadcastState` event). */
 export interface BroadcastState {
 	running: boolean;
@@ -115,11 +125,19 @@ export interface BroadcastState {
 	url?: string;
 	/** Connected WebRTC viewers (capped at ~3 — each costs a hardware encoder). */
 	viewers: number;
+	/**
+	 * The profile the *running* broadcast was built with. The encoder factory and video source
+	 * are fixed at start, so switching profiles means stopping and starting again — this field
+	 * is what's live, which may lag the user's current preference until that happens.
+	 */
+	quality?: BroadcastQuality;
 }
 
 export interface StartBroadcastOptions {
 	/** HTTP/WS port for the viewer page + signaling (default 8888). */
 	port?: number;
+	/** Quality profile to build the broadcast with (default `balanced`). */
+	quality?: BroadcastQuality;
 }
 
 /**

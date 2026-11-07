@@ -35,6 +35,18 @@
   };
 
   let pc = null, ws = null, retryTimer = null;
+  // Jitter buffer the phone asked us to hold, in ms. Sent with the offer; 0 until then.
+  let playoutDelayMs = 0;
+
+  // The receiving half of the quality profile. A deeper buffer lets the sender's encoder ride
+  // out bursts instead of having quality clipped to fit each frame into a near-empty queue.
+  // `jitterBufferTarget` is the standard knob; `playoutDelayHint` is the older Chrome-only
+  // spelling, kept as a fallback. Both are best-effort — neither is fatal if unsupported.
+  function applyBuffer(receiver) {
+    if (!receiver || !playoutDelayMs) return;
+    try { receiver.jitterBufferTarget = playoutDelayMs; } catch {}
+    try { receiver.playoutDelayHint = playoutDelayMs / 1000; } catch {}
+  }
 
   function connect() {
     setStatus('connecting…');
@@ -42,9 +54,10 @@
     pc = new RTCPeerConnection({ iceServers: [] }); // LAN only — host candidates
 
     pc.ontrack = (e) => {
+      applyBuffer(e.receiver);
       video.srcObject = e.streams[0];
       video.play().catch(() => { tap.style.display = 'grid'; });
-      setStatus('live', 1500);
+      setStatus(playoutDelayMs >= 500 ? `live · ${(playoutDelayMs / 1000).toFixed(1)}s buffer` : 'live', 1500);
     };
     pc.onicecandidate = (e) => {
       if (e.candidate && ws.readyState === WebSocket.OPEN) {
@@ -65,7 +78,11 @@
     ws.onmessage = async (m) => {
       const msg = JSON.parse(m.data);
       if (msg.type === 'offer') {
+        playoutDelayMs = Number(msg.playoutDelayMs) || 0;
         await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+        // ontrack fires during setRemoteDescription, so on the first offer the handler above
+        // already had the value — but re-apply for any later renegotiation.
+        pc.getReceivers().forEach(applyBuffer);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         ws.send(JSON.stringify({ type: 'answer', sdp: answer.sdp }));
